@@ -1,0 +1,151 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/Nomi-Health-Inc/octo-lambda/libs/aws_helpers"
+	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/comprehend"
+	"github.com/tidwall/gjson"
+)
+
+type SendPayload struct {
+	To   string `json:"to"`
+	Body string `json:"body"`
+}
+
+func sendSMS(to string, msg string) error {
+	from := os.Getenv("FROM_PHONE")
+	secretName := os.Getenv("SECRET_NAME")
+	region := os.Getenv("REGION")
+	twilioAccountsURL := os.Getenv("TWILIO_ACCOUNTS_URL")
+
+	secrets, err := aws_helpers.GetSecrets(secretName, region)
+	if err != nil {
+		return err
+	}
+
+	TWILIO_ACCOUNT_SID := secrets["TWILIO_ACCOUNT_SID"]
+	TWILIO_AUTH_TOKEN := secrets["TWILIO_AUTH_TOKEN"]
+
+	MESSAGE_POST_URL := fmt.Sprintf(twilioAccountsURL+"/%s/Messages.json", TWILIO_ACCOUNT_SID)
+
+	dataStr := fmt.Sprintf("Body=%s&From=%s&To=%s", msg, from, to)
+	data := strings.NewReader(dataStr)
+
+	req, err := http.NewRequest(http.MethodPost, MESSAGE_POST_URL, data)
+	if err != nil {
+		log.Fatalf("could not create request: %s\n", err)
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+	client := http.Client{}
+
+	res, err := client.Do(req)
+	if err != nil {
+		log.Fatalf("error making HTTP request: %s\n", err)
+		return err
+	}
+
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		log.Fatalf("cound not read response body: %s\n", err)
+		return err
+	}
+
+	results := gjson.GetMany(string(resBody), "to", "status", "sid")
+
+	log.Printf("From Genesys to %s, %s, %s", results[0], results[1], results[2])
+	return nil
+}
+
+func Handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	results := gjson.GetMany(req.Body, "channel.to.id", "text")
+
+	t := results[0].Str
+	b := results[1].Str
+
+	m, err := detect(b)
+	if err != nil {
+		log.Fatalf("failed in PII detection%s\n", err)
+		return aws_helpers.GetHTTPResponse(http.StatusBadRequest, "failed to send SMS", nil)
+	}
+
+	redactedText := redact(b, m)
+
+	err = sendSMS(t, redactedText)
+	if err != nil {
+		log.Fatalf("failed to send SMS%s\n", err)
+		return aws_helpers.GetHTTPResponse(http.StatusBadRequest, "failed to send SMS", nil)
+	}
+
+	return aws_helpers.GetHTTPResponse(http.StatusOK, "OK", nil)
+}
+
+func main() {
+	lambda.Start(Handler)
+}
+
+func contains(s []string, str string) bool {
+	for _, v := range s {
+		if v == str {
+			return true
+		}
+	}
+
+	return false
+}
+
+func detect(text string) (*comprehend.DetectPiiEntitiesOutput, error) {
+	sess, err := session.NewSession(&aws.Config{Region: aws.String("us-west-2")})
+	if err != nil {
+		log.Panicln(err)
+	}
+
+	comprehendClient := comprehend.New(sess)
+
+	input := &comprehend.DetectPiiEntitiesInput{}
+	input.SetLanguageCode("en")
+	input.SetText(text)
+
+	output, err := comprehendClient.DetectPiiEntities(input)
+	if err != nil {
+		log.Panicln(err)
+	}
+
+	return output, nil
+}
+
+func redact(text string, m *comprehend.DetectPiiEntitiesOutput) string {
+	redacted := []rune(text)
+	ch := 'X'
+
+	filter := []string{"NAME", "URL"}
+
+	for _, entity := range m.Entities {
+		log.Printf("Entity %v\n", entity.Type)
+	}
+
+	for _, e := range m.Entities {
+		if !contains(filter, string(*e.Type)) {
+			log.Printf("%s", *e.Type)
+			for i := *e.BeginOffset; i < *e.EndOffset; i += 1 {
+				redacted[i] = ch
+			}
+		}
+	}
+
+	return string(redacted)
+}
