@@ -1,0 +1,54 @@
+import boto3
+import re
+client = boto3.client(service_name='comprehendmedical', region_name='us-west-2')
+Text = 'Hello Zhang Wei, I am John. Your AnyCompany Financial Services, LLC credit card account 1111-0000-1111-0008'
+result = client.detect_phi(Text=Text)
+# print(f"Unmapped: {len(result['UnmappedAttributes'])}")
+# unmapped = len(result['UnmappedAttributes'])
+mapped = len(result['Entities'])
+print(f"Entities: {len(result['Entities'])}")
+if mapped > 0:
+    print("Entities found in Entities Attribute")
+    entities = result['Entities']
+# elif unmapped > 0:
+#     print("Entities found in Unmapped Attribute")
+#     entities = result['UnmappedAttributes'].
+else:
+    print("Entities not Found")
+texts=[]
+
+for foundtext in entities:
+    texts.append(foundtext['Text'])
+# print(texts)
+
+# if texts in Text:
+#     print("Found")
+# else:
+#     print("Not Found")
+
+# for entity in entities:
+#     print(f"Entities: {entity}")
+#     for entitylist in entity['Text']:
+#         print('Entity', entitylist)
+
+# print(' '.join(findstring))
+# print(len(findstring))
+
+findstring = Text.split(" ")
+
+# findstring = re.split(r',| |.', Text)
+x=0
+y=0
+
+
+for x in range(len(findstring)):
+    for y in range(len(texts)):
+        removedspl = findstring[x].replace(",","").replace(".","")
+        removeSpecialChars = re.sub("[!@#$%^&*()[]{};:,./<>?\|`~-=_+]", " ", findstring[x])
+        if removedspl in texts[y]:
+            findstring[x] = "*****"
+        y += 1
+    x += 1
+
+
+print(' '.join(findstring))
