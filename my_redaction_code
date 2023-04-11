@@ -1,50 +1,37 @@
 import boto3
 import re
+
+x=0
+y=0
+Text = 'Hello! Zhang Wei, I am "John". Your AnyCompany Financial Services, "LLC" credit card account 1111-0000-1111-0008'
+texts=[]
+foundtext = []
+
 client = boto3.client(service_name='comprehendmedical', region_name='us-west-2')
-Text = 'Hello Zhang Wei, I am John. Your AnyCompany Financial Services, LLC credit card account 1111-0000-1111-0008'
 result = client.detect_phi(Text=Text)
-# print(f"Unmapped: {len(result['UnmappedAttributes'])}")
-# unmapped = len(result['UnmappedAttributes'])
 mapped = len(result['Entities'])
 print(f"Entities: {len(result['Entities'])}")
 if mapped > 0:
     print("Entities found in Entities Attribute")
     entities = result['Entities']
-# elif unmapped > 0:
-#     print("Entities found in Unmapped Attribute")
-#     entities = result['UnmappedAttributes'].
 else:
     print("Entities not Found")
-texts=[]
 
 for foundtext in entities:
     texts.append(foundtext['Text'])
-# print(texts)
 
-# if texts in Text:
-#     print("Found")
-# else:
-#     print("Not Found")
-
-# for entity in entities:
-#     print(f"Entities: {entity}")
-#     for entitylist in entity['Text']:
-#         print('Entity', entitylist)
-
-# print(' '.join(findstring))
-# print(len(findstring))
+print(texts)
 
 findstring = Text.split(" ")
-
-# findstring = re.split(r',| |.', Text)
-x=0
-y=0
 
 
 for x in range(len(findstring)):
     for y in range(len(texts)):
-        removedspl = findstring[x].replace(",","").replace(".","")
-        removeSpecialChars = re.sub("[!@#$%^&*()[]{};:,./<>?\|`~-=_+]", " ", findstring[x])
+        # removedspl = findstring[x].replace(",","").replace(".","")
+        # removedspl = re.sub("[!@#$%^&*()[]{};:,./<>?\|`~-=_+]", " ", findstring[x])
+        # removedspl = filter(str.isalnum(findstring[x]))
+        removedspl = re.sub('[^A-Za-z0-9\-]+', '', findstring[x])
+        # print(f"After removing special characters: {removedspl}")
         if removedspl in texts[y]:
             findstring[x] = "*****"
         y += 1
